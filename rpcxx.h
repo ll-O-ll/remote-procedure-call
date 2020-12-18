@@ -105,19 +105,10 @@ struct Protocol<std::string> {
 };
 
 // TASK2: Client-side
-class IntParam : public BaseParams {
-  int p;
+template<typename... Params>
+class ParamList : public BaseParams {
  public:
-  IntParam(int p) : p(p) {}
-
-  bool Encode(uint8_t *out_bytes, uint32_t *out_len) const override {
-    return Protocol<int>::Encode(out_bytes, out_len, p);
-  }
-};
-
-class VoidParam : public BaseParams {
- public:
-  VoidParam() {}
+  ParamList() {}
 
   bool Encode(uint8_t *out_bytes, uint32_t *out_len) const override {
     *out_len = 0;
@@ -125,486 +116,33 @@ class VoidParam : public BaseParams {
   }
 };
 
-class UintParam : public BaseParams {
-  unsigned int p;
+template<typename Param, typename... OtherParams>
+class ParamList<Param, OtherParams...> : public ParamList<OtherParams...> {
+  Param param;
+
  public:
-  UintParam(unsigned int p) : p(p) {}
-
-  bool Encode(uint8_t *out_bytes, uint32_t *out_len) const override {
-    return Protocol<unsigned int>::Encode(out_bytes, out_len, p);
-  }
-};
-
-class StrParam : public BaseParams {
-  std::string p;
- public:
-  StrParam(std::string p) : p(p) {}
-
-  bool Encode(uint8_t *out_bytes, uint32_t *out_len) const override {
-    return Protocol<std::string>::Encode(out_bytes, out_len, p);
-  }
-};
-
-class StrIntParam : public BaseParams {
-  std::string p1;
-  int p2;
- public:
-  StrIntParam(std::string p1, int p2) : p1(p1), p2(p2) {}
+  ParamList(Param param, OtherParams... other_params) : ParamList<OtherParams...>(other_params...), param(param) {}
 
   bool Encode(uint8_t *out_bytes, uint32_t *out_len) const override {
     uint32_t used_len = 0;
-
     uint32_t remaining_len = *out_len;
-    if (!Protocol<std::string>::Encode(out_bytes, &remaining_len, p1)) {
+    if (!Protocol<Param>::Encode(out_bytes, &remaining_len, param)) {
       return false;
     }
     used_len += remaining_len; // Encode() returns the number of used bytes through the remaining_len parameter
-    out_bytes += remaining_len;
 
+    out_bytes += remaining_len;
     remaining_len = *out_len - used_len;
-    if (!Protocol<int>::Encode(out_bytes, &remaining_len, p2)) {
+    if (!this->ParamList<OtherParams...>::Encode(out_bytes, &remaining_len)) {
       return false;
     }
     used_len += remaining_len; // Encode() returns the number of used bytes through the remaining_len parameter
-    out_bytes += remaining_len;
 
     // Return the final number of used bytes via the out_len parameter
     *out_len = used_len;
-
     return true;
   }
 };
-
-class IntUintParam : public BaseParams {
-  int p1;
-  unsigned int p2;
- public:
-  IntUintParam(int p1, unsigned int p2) : p1(p1), p2(p2) {}
-
-  bool Encode(uint8_t *out_bytes, uint32_t *out_len) const override {
-    uint32_t used_len = 0;
-
-    uint32_t remaining_len = *out_len;
-    if (!Protocol<int>::Encode(out_bytes, &remaining_len, p1)) {
-      return false;
-    }
-    used_len += remaining_len; // Encode() returns the number of used bytes through the remaining_len parameter
-    out_bytes += remaining_len;
-
-    remaining_len = *out_len - used_len;
-    if (!Protocol<unsigned int>::Encode(out_bytes, &remaining_len, p2)) {
-      return false;
-    }
-    used_len += remaining_len; // Encode() returns the number of used bytes through the remaining_len parameter
-    out_bytes += remaining_len;
-
-    // Return the final number of used bytes via the out_len parameter
-    *out_len = used_len;
-
-    return true;
-  }
-};
-
-class StrStrParam : public BaseParams {
-  std::string p1;
-  std::string p2;
- public:
-  StrStrParam(std::string p1, std::string p2) : p1(p1), p2(p2) {}
-
-  bool Encode(uint8_t *out_bytes, uint32_t *out_len) const override {
-    uint32_t used_len = 0;
-
-    uint32_t remaining_len = *out_len;
-    if (!Protocol<std::string>::Encode(out_bytes, &remaining_len, p1)) {
-      return false;
-    }
-    used_len += remaining_len; // Encode() returns the number of used bytes through the remaining_len parameter
-    out_bytes += remaining_len;
-
-    remaining_len = *out_len - used_len;
-    if (!Protocol<std::string>::Encode(out_bytes, &remaining_len, p2)) {
-      return false;
-    }
-    used_len += remaining_len; // Encode() returns the number of used bytes through the remaining_len parameter
-    out_bytes += remaining_len;
-
-    // Return the final number of used bytes via the out_len parameter
-    *out_len = used_len;
-
-    return true;
-  }
-};
-
-// TASK2: Server-side
-// Sample function
-template<typename Svc>
-class Int_IntProcedure : public BaseProcedure {
-  bool DecodeAndExecute(uint8_t *in_bytes, uint32_t *in_len,
-                        uint8_t *out_bytes, uint32_t *out_len,
-                        bool *ok) override final {
-    int x;
-    // This function is similar to Decode. We need to return false if buffer
-    // isn't large enough, or fatal error happens during parsing.
-    if (!Protocol<int>::Decode(in_bytes, in_len, ok, x) || !*ok) {
-      return false;
-    }
-    // Now we cast the function pointer func_ptr to its original type.
-    //
-    // This incomplete solution only works for this type of member functions.
-    using FunctionPointerType = int (Svc::*)(int);
-    auto p = func_ptr.To<FunctionPointerType>();
-    int result = (((Svc *) instance)->*p)(x);
-    if (!Protocol<int>::Encode(out_bytes, out_len, result)) {
-      // out_len should always be large enough so this branch shouldn't be
-      // taken. However just in case, we return an fatal error by setting *ok
-      // to false.
-      *ok = false;
-      return false;
-    }
-    return true;
-  }
-};
-
-// Function 1
-
-template<typename Svc>
-class Void_VoidProcedure : public BaseProcedure {
-  bool DecodeAndExecute(uint8_t *in_bytes, uint32_t *in_len,
-                        uint8_t *out_bytes, uint32_t *out_len,
-                        bool *ok) override final {
-    *in_len = 0;
-
-    // This function is similar to Decode. We need to return false if buffer
-    // isn't large enough, or fatal error happens during parsing.
-    // Now we cast the function pointer func_ptr to its original type.
-    //
-    // This incomplete solution only works for this type of member functions.
-    using FunctionPointerType = void (Svc::*)();
-    auto p = func_ptr.To<FunctionPointerType>();
-    (((Svc *) instance)->*p)();
-    *out_len = 0;
-    return true;
-  }
-};
-
-// Function 2
-
-template<typename Svc>
-class Void_BoolProcedure : public BaseProcedure {
-  bool DecodeAndExecute(uint8_t *in_bytes, uint32_t *in_len,
-                        uint8_t *out_bytes, uint32_t *out_len,
-                        bool *ok) override final {
-    *in_len = 0;
-
-    // Now we cast the function pointer func_ptr to its original type.
-    //
-    // This incomplete solution only works for this type of member functions.
-    using FunctionPointerType = bool (Svc::*)();
-    auto p = func_ptr.To<FunctionPointerType>();
-    bool result = (((Svc *) instance)->*p)();
-    if (!Protocol<bool>::Encode(out_bytes, out_len, result)) {
-      // out_len should always be large enough so this branch shouldn't be
-      // taken. However just in case, we return an fatal error by setting *ok
-      // to false.
-      *ok = false;
-      return false;
-    }
-    return true;
-  }
-};
-
-// Function 3
-
-template<typename Svc>
-class Uint_StrProcedure : public BaseProcedure {
-  bool DecodeAndExecute(uint8_t *in_bytes, uint32_t *in_len,
-                        uint8_t *out_bytes, uint32_t *out_len,
-                        bool *ok) override final {
-    unsigned int x;
-    // This function is similar to Decode. We need to return false if buffer
-    // isn't large enough, or fatal error happens during parsing.
-    if (!Protocol<unsigned int>::Decode(in_bytes, in_len, ok, x) || !*ok) {
-      return false;
-    }
-    // Now we cast the function pointer func_ptr to its original type.
-    //
-    // This incomplete solution only works for this type of member functions.
-    using FunctionPointerType = std::string (Svc::*)(unsigned int);
-    auto p = func_ptr.To<FunctionPointerType>();
-    std::string result = (((Svc *) instance)->*p)(x);
-    if (!Protocol<std::string>::Encode(out_bytes, out_len, result)) {
-      // out_len should always be large enough so this branch shouldn't be
-      // taken. However just in case, we return an fatal error by setting *ok
-      // to false.
-      *ok = false;
-      return false;
-    }
-    return true;
-  }
-};
-
-// Function 4 (according to lab doc)
-// ------------------------------------------------------------------------------
-
-template<typename Svc>
-class Str_StrProcedure : public BaseProcedure {
-  bool DecodeAndExecute(uint8_t *in_bytes, uint32_t *in_len,
-                        uint8_t *out_bytes, uint32_t *out_len,
-                        bool *ok) override final {
-    std::string x;
-    // This function is similar to Decode. We need to return false if buffer
-    // isn't large enough, or fatal error happens during parsing.
-    if (!Protocol<std::string>::Decode(in_bytes, in_len, ok, x) || !*ok) {
-      return false;
-    }
-    // Now we cast the function pointer func_ptr to its original type.
-    //
-    // This incomplete solution only works for this type of member functions.
-    using FunctionPointerType = std::string (Svc::*)(std::string);
-    auto p = func_ptr.To<FunctionPointerType>();
-    std::string result = (((Svc *) instance)->*p)(x);
-    if (!Protocol<std::string>::Encode(out_bytes, out_len, result)) {
-      // out_len should always be large enough so this branch shouldn't be
-      // taken. However just in case, we return an fatal error by setting *ok
-      // to false.
-      *ok = false;
-      return false;
-    }
-    return true;
-  }
-};
-
-// ------------------------------------------------------------------------------------------
-// Function 4 (according to test-complex.cc)
-// ------------------------------------------------------------------------------------------
-// see Function 5's server-side implementation
-// ------------------------------------------------------------------------------------------
-
-// Function 5
-
-template<typename Svc>
-class StrInt_StrProcedure : public BaseProcedure {
-  bool DecodeAndExecute(uint8_t *in_bytes, uint32_t *in_len,
-                        uint8_t *out_bytes, uint32_t *out_len,
-                        bool *ok) override final {
-    std::string arg1;
-    int arg2;
-
-    uint32_t used_in_len = 0;
-    uint32_t remaining_in_len = *in_len;
-    // This function is similar to Decode. We need to return false if buffer
-    // isn't large enough, or fatal error happens during parsing.
-    if (!Protocol<std::string>::Decode(in_bytes, &remaining_in_len, ok, arg1) || !*ok) {
-      return false;
-    }
-    used_in_len += remaining_in_len; // Decode() returns the number of bytes used through the remaining_in_len parameter
-    in_bytes += remaining_in_len;
-
-    remaining_in_len = *in_len - used_in_len;
-    // This function is similar to Decode. We need to return false if buffer
-    // isn't large enough, or fatal error happens during parsing.
-    if (!Protocol<int>::Decode(in_bytes, &remaining_in_len, ok, arg2) || !*ok) {
-      return false;
-    }
-    used_in_len += remaining_in_len; // Decode() returns the number of bytes used through the remaining_in_len parameter
-    in_bytes += remaining_in_len;
-
-    *in_len = used_in_len;
-
-    // Now we cast the function pointer func_ptr to its original type.
-    //
-    // This incomplete solution only works for this type of member functions.
-    using FunctionPointerType = std::string (Svc::*)(std::string, int);
-    auto p = func_ptr.To<FunctionPointerType>();
-    std::string result = (((Svc *) instance)->*p)(arg1, arg2);
-    if (!Protocol<std::string>::Encode(out_bytes, out_len, result)) {
-      // out_len should always be large enough so this branch shouldn't be
-      // taken. However just in case, we return an fatal error by setting *ok
-      // to false.
-      *ok = false;
-      return false;
-    }
-    return true;
-  }
-};
-
-// Functions 6-7 (according to lab doc)
-// ------------------------------------------------------------------------------------------
-template<typename Svc>
-class StrInt_UintProcedure : public BaseProcedure {
-  bool DecodeAndExecute(uint8_t *in_bytes, uint32_t *in_len,
-                        uint8_t *out_bytes, uint32_t *out_len,
-                        bool *ok) override final {
-    std::string arg1;
-    int arg2;
-
-    uint32_t used_in_len = 0;
-    uint32_t remaining_in_len = *in_len;
-    // This function is similar to Decode. We need to return false if buffer
-    // isn't large enough, or fatal error happens during parsing.
-    if (!Protocol<std::string>::Decode(in_bytes, &remaining_in_len, ok, arg1) || !*ok) {
-      return false;
-    }
-    used_in_len += remaining_in_len; // Decode() returns the number of bytes used through the remaining_in_len parameter
-    in_bytes += remaining_in_len;
-
-    remaining_in_len = *in_len - used_in_len;
-    // This function is similar to Decode. We need to return false if buffer
-    // isn't large enough, or fatal error happens during parsing.
-    if (!Protocol<int>::Decode(in_bytes, &remaining_in_len, ok, arg2) || !*ok) {
-      return false;
-    }
-    used_in_len += remaining_in_len; // Decode() returns the number of bytes used through the remaining_in_len parameter
-    in_bytes += remaining_in_len;
-
-    *in_len = used_in_len;
-
-    // Now we cast the function pointer func_ptr to its original type.
-    //
-    // This incomplete solution only works for this type of member functions.
-    using FunctionPointerType = unsigned int (Svc::*)(std::string, int);
-    auto p = func_ptr.To<FunctionPointerType>();
-    unsigned int result = (((Svc *) instance)->*p)(arg1, arg2);
-    if (!Protocol<unsigned int>::Encode(out_bytes, out_len, result)) {
-      // out_len should always be large enough so this branch shouldn't be
-      // taken. However just in case, we return an fatal error by setting *ok
-      // to false.
-      *ok = false;
-      return false;
-    }
-    return true;
-  }
-};
-
-template<typename Svc>
-class StrInt_VoidProcedure : public BaseProcedure {
-  bool DecodeAndExecute(uint8_t *in_bytes, uint32_t *in_len,
-                        uint8_t *out_bytes, uint32_t *out_len,
-                        bool *ok) override final {
-    std::string arg1;
-    int arg2;
-
-    uint32_t used_in_len = 0;
-    uint32_t remaining_in_len = *in_len;
-    // This function is similar to Decode. We need to return false if buffer
-    // isn't large enough, or fatal error happens during parsing.
-    if (!Protocol<std::string>::Decode(in_bytes, &remaining_in_len, ok, arg1) || !*ok) {
-      return false;
-    }
-    used_in_len += remaining_in_len; // Decode() returns the number of bytes used through the remaining_in_len parameter
-    in_bytes += remaining_in_len;
-
-    remaining_in_len = *in_len - used_in_len;
-    // This function is similar to Decode. We need to return false if buffer
-    // isn't large enough, or fatal error happens during parsing.
-    if (!Protocol<int>::Decode(in_bytes, &remaining_in_len, ok, arg2) || !*ok) {
-      return false;
-    }
-    used_in_len += remaining_in_len; // Decode() returns the number of bytes used through the remaining_in_len parameter
-    in_bytes += remaining_in_len;
-
-    *in_len = used_in_len;
-
-    // Now we cast the function pointer func_ptr to its original type.
-    //
-    // This incomplete solution only works for this type of member functions.
-    using FunctionPointerType = void (Svc::*)(std::string, int);
-    auto p = func_ptr.To<FunctionPointerType>();
-    (((Svc *) instance)->*p)(arg1, arg2);
-    *out_len = 0;
-    return true;
-  }
-};
-
-// Functions 6-7 (according to test-complex.cc)
-// ------------------------------------------------------------------------------------------
-template<typename Svc>
-class IntUint_UlongProcedure : public BaseProcedure {
-  bool DecodeAndExecute(uint8_t *in_bytes, uint32_t *in_len,
-                        uint8_t *out_bytes, uint32_t *out_len,
-                        bool *ok) override final {
-    int arg1;
-    unsigned int arg2;
-
-    uint32_t used_in_len = 0;
-    uint32_t remaining_in_len = *in_len;
-    // This function is similar to Decode. We need to return false if buffer
-    // isn't large enough, or fatal error happens during parsing.
-    if (!Protocol<int>::Decode(in_bytes, &remaining_in_len, ok, arg1) || !*ok) {
-      return false;
-    }
-    used_in_len += remaining_in_len; // Decode() returns the number of bytes used through the remaining_in_len parameter
-    in_bytes += remaining_in_len;
-
-    remaining_in_len = *in_len - used_in_len;
-    // This function is similar to Decode. We need to return false if buffer
-    // isn't large enough, or fatal error happens during parsing.
-    if (!Protocol<unsigned int>::Decode(in_bytes, &remaining_in_len, ok, arg2) || !*ok) {
-      return false;
-    }
-    used_in_len += remaining_in_len; // Decode() returns the number of bytes used through the remaining_in_len parameter
-    in_bytes += remaining_in_len;
-
-    *in_len = used_in_len;
-
-    // Now we cast the function pointer func_ptr to its original type.
-    //
-    // This incomplete solution only works for this type of member functions.
-    using FunctionPointerType = unsigned long (Svc::*)(int, unsigned int);
-    auto p = func_ptr.To<FunctionPointerType>();
-    unsigned long result = (((Svc *) instance)->*p)(arg1, arg2);
-    if (!Protocol<unsigned long>::Encode(out_bytes, out_len, result)) {
-      // out_len should always be large enough so this branch shouldn't be
-      // taken. However just in case, we return an fatal error by setting *ok
-      // to false.
-      *ok = false;
-      return false;
-    }
-
-    return true;
-  }
-};
-
-template<typename Svc>
-class StrStr_VoidProcedure : public BaseProcedure {
-  bool DecodeAndExecute(uint8_t *in_bytes, uint32_t *in_len,
-                        uint8_t *out_bytes, uint32_t *out_len,
-                        bool *ok) override final {
-    std::string arg1;
-    std::string arg2;
-
-    uint32_t used_in_len = 0;
-    uint32_t remaining_in_len = *in_len;
-    // This function is similar to Decode. We need to return false if buffer
-    // isn't large enough, or fatal error happens during parsing.
-    if (!Protocol<std::string>::Decode(in_bytes, &remaining_in_len, ok, arg1) || !*ok) {
-      return false;
-    }
-    used_in_len += remaining_in_len; // Decode() returns the number of bytes used through the remaining_in_len parameter
-    in_bytes += remaining_in_len;
-
-    remaining_in_len = *in_len - used_in_len;
-    // This function is similar to Decode. We need to return false if buffer
-    // isn't large enough, or fatal error happens during parsing.
-    if (!Protocol<std::string>::Decode(in_bytes, &remaining_in_len, ok, arg2) || !*ok) {
-      return false;
-    }
-    used_in_len += remaining_in_len; // Decode() returns the number of bytes used through the remaining_in_len parameter
-    in_bytes += remaining_in_len;
-
-    *in_len = used_in_len;
-
-    // Now we cast the function pointer func_ptr to its original type.
-    //
-    // This incomplete solution only works for this type of member functions.
-    using FunctionPointerType = void (Svc::*)(std::string, std::string);
-    auto p = func_ptr.To<FunctionPointerType>();
-    (((Svc *) instance)->*p)(arg1, arg2);
-    *out_len = 0;
-    return true;
-  }
-};
-// ------------------------------------------------------------------------------------------
 
 // TASK2: Client-side
 template<typename ResultType>
@@ -629,282 +167,187 @@ class Result<void> : public BaseResult {
 // TASK2: Client-side
 class Client : public BaseClient {
  public:
-  // Sample function
-  template<typename Svc>
-  Result<int> *Call(Svc *svc, int (Svc::*func)(int), int x) {
+  template<typename Svc, typename Return, typename... Params>
+  Result<Return> *Call(Svc *svc, Return (Svc::*func)(Params...), Params... params) {
     // Lookup instance and function IDs.
     int instance_id = svc->instance_id();
     int func_id = svc->LookupExportFunction(MemberFunctionPtr::From(func));
 
-    // This incomplete solution only works for this type of member functions.
-    // So the result must be an integer.
-    auto result = new Result<int>();
+    auto result = new Result<Return>();
 
-    // We also send the parameters of the functions. For this incomplete
-    // solution, it must be one integer.
-    if (!Send(instance_id, func_id, new IntParam(x), result)) {
+    if (!Send(instance_id, func_id, new ParamList<Params...>(params...), result)) {
       // Fail to send, then delete the result and return nullptr.
       delete result;
       return nullptr;
     }
     return result;
   }
+};
 
-  // Function 1
-  template<typename Svc>
-  Result<void> *Call(Svc *svc, void (Svc::*func)()) {
-    // Lookup instance and function IDs.
-    int instance_id = svc->instance_id();
-    int func_id = svc->LookupExportFunction(MemberFunctionPtr::From(func));
+// ---------------------------------------------------------------------------------------
 
-    // We also send the parameters of the functions. For this incomplete
-    // solution, it must be one integer.
-    auto result = new Result<void>();
-    Send(instance_id, func_id, new VoidParam(), result);
-    return nullptr;
+// TASK2: Server-side
+
+// cases:
+// specialize template when RT is void
+// 2) T func(Args... ) -> use progressive approach
+
+template<typename Svc, typename ReturnType, typename... Args>
+class Args_TProcedure;
+
+template<typename Svc, typename ReturnType>
+class Args_TProcedure<Svc, ReturnType> : public BaseProcedure {
+ public:
+  bool DecodeAndExecute(uint8_t *in_bytes, uint32_t *in_len,
+                        uint8_t *out_bytes, uint32_t *out_len,
+                        bool *ok) override {
+    ReturnType result = DecodeAndExecuteRecursive(in_bytes, in_len, ok);
+    if (!Protocol<ReturnType>::Encode(out_bytes, out_len, result)) {
+      *ok = false;
+      return false;
+    }
+
+    return true;
   }
 
-  // Function 2
+  template<typename... Args>
+  ReturnType DecodeAndExecuteRecursive(uint8_t *in_bytes, uint32_t *in_len,
+                                       Args... args,
+                                       bool *ok) {
+    *in_len = 0;
 
-  template<typename Svc>
-  Result<bool> *Call(Svc *svc, bool (Svc::*func)()) {
-    // Lookup instance and function IDs.
-    int instance_id = svc->instance_id();
-    int func_id = svc->LookupExportFunction(MemberFunctionPtr::From(func));
-
-    // This incomplete solution only works for this type of member functions.
-    // So the result must be an boolean.
-    auto result = new Result<bool>();
-
-    // We also send the parameters of the functions. For this incomplete
-    // solution, it must be one integer.
-
-    if (!Send(instance_id, func_id, new VoidParam(), result)) {
-      // Fail to send, then delete the result and return nullptr.
-      delete result;
-      return nullptr;
-    }
+    using FunctionPointerType = ReturnType (Svc::*)(Args...);
+    auto p = func_ptr.To<FunctionPointerType>();
+    ReturnType result = (((Svc *) instance)->*p)(args...);
     return result;
   }
+};
 
-  // Function 3
+// Sample function
+// in the progressive approach - handling one argument of type Arg
+template<typename Svc, typename ReturnType, typename Arg, typename... Args>
+class Args_TProcedure<Svc, ReturnType, Arg, Args...> : public Args_TProcedure<Svc, ReturnType, Args...> { // inherit from base template above
+ public:
+  bool DecodeAndExecute(uint8_t *in_bytes, uint32_t *in_len,
+                        uint8_t *out_bytes, uint32_t *out_len,
+                        bool *ok) override {
 
-  template<typename Svc>
-  Result<std::string> *Call(Svc *svc, std::string (Svc::*func)(unsigned int), unsigned int x) {
-    // Lookup instance and function IDs.
-    int instance_id = svc->instance_id();
-    int func_id = svc->LookupExportFunction(MemberFunctionPtr::From(func));
-
-    // This incomplete solution only works for this type of member functions.
-    // So the result must be an integer.
-    auto result = new Result<std::string>();
-
-    // We also send the parameters of the functions. For this incomplete
-    // solution, it must be one integer.
-    if (!Send(instance_id, func_id, new UintParam(x), result)) {
-      // Fail to send, then delete the result and return nullptr.
-      delete result;
-      return nullptr;
+    ReturnType result = DecodeAndExecuteRecursive(in_bytes, in_len, ok);
+    if (!Protocol<ReturnType>::Encode(out_bytes, out_len, result)) {
+      *ok = false;
+      return false;
     }
-    return result;
+
+    return true;
   }
 
-  // Function 4 (according to lab doc)
-  // ------------------------------------------------------------------------------------------
-  template<typename Svc>
-  Result<std::string> *Call(Svc *svc, std::string (Svc::*func)(std::string), std::string x) {
-    // Lookup instance and function IDs.
-    int instance_id = svc->instance_id();
-    int func_id = svc->LookupExportFunction(MemberFunctionPtr::From(func));
+  template<typename... CurrArgs>
+  ReturnType DecodeAndExecuteRecursive(uint8_t *in_bytes, uint32_t *in_len,
+                                       CurrArgs... curr_args,
+                                       bool *ok) {
 
-    // This incomplete solution only works for this type of member functions.
-    // So the result must be an integer.
-    auto result = new Result<std::string>();
+    uint32_t used_in_len = 0;
+    uint32_t remaining_in_len = *in_len;
 
-    // We also send the parameters of the functions. For this incomplete
-    // solution, it must be one integer.
-    if (!Send(instance_id, func_id, new StrParam(x), result)) {
-      // Fail to send, then delete the result and return nullptr.
-      delete result;
-      return nullptr;
+    Arg arg;
+    // This function is similar to Decode. We need to return false if buffer
+    // isn't large enough, or fatal error happens during parsing.
+    if (!Protocol<Arg>::Decode(in_bytes, &remaining_in_len, ok, arg) || !*ok) {
+      return (ReturnType) 0;
     }
+    used_in_len += remaining_in_len; // Decode() returns the number of bytes used through the remaining_in_len parameter
+    in_bytes += remaining_in_len;
+    remaining_in_len = *in_len - used_in_len;
+
+    ReturnType result =
+        Args_TProcedure<Svc, ReturnType, Args...>::template DecodeAndExecuteRecursive<CurrArgs..., Arg>(in_bytes,
+                                                                                                        &remaining_in_len,
+                                                                                                        curr_args...,
+                                                                                                        arg,
+                                                                                                        ok);
+    used_in_len += remaining_in_len; // Decode() returns the number of bytes used through the remaining_in_len parameter
+
+    *in_len = used_in_len;
     return result;
   }
+};
 
-  // ------------------------------------------------------------------------------------------
-  // Function 4 (according to text-complex.cc)
-  // see Function 5's client-side implementation
-  // ------------------------------------------------------------------------------------------
 
-  // Function 5
-  template<typename Svc>
-  Result<std::string> *Call(Svc *svc, std::string (Svc::*func)(std::string, int), std::string arg1, int arg2) {
-    // Lookup instance and function IDs.
-    int instance_id = svc->instance_id();
-    int func_id = svc->LookupExportFunction(MemberFunctionPtr::From(func));
-
-    // This incomplete solution only works for this type of member functions.
-    // So the result must be an integer.
-    auto result = new Result<std::string>();
-
-    // We also send the parameters of the functions. For this incomplete
-    // solution, it must be one integer.
-    if (!Send(instance_id, func_id, new StrIntParam(arg1, arg2), result)) {
-      // Fail to send, then delete the result and return nullptr.
-      delete result;
-      return nullptr;
-    }
-    return result;
+// handle the case where result type is void (cannot assign to void type to a variable in Cpp)
+template<typename Svc>
+class Args_TProcedure<Svc, void> : public BaseProcedure {
+ public:
+  bool DecodeAndExecute(uint8_t *in_bytes, uint32_t *in_len,
+                        uint8_t *out_bytes, uint32_t *out_len,
+                        bool *ok) override {
+    DecodeAndExecuteRecursive(in_bytes, in_len, ok);
+    *out_len = 0;
+    return true;
   }
 
-  // Functions 6-7 (according to lab doc)
-  // ------------------------------------------------------------------------------------------
-  template<typename Svc>
-  Result<unsigned int> *Call(Svc *svc, unsigned int (Svc::*func)(std::string, int), std::string arg1, int arg2) {
-    // Lookup instance and function IDs.
-    int instance_id = svc->instance_id();
-    int func_id = svc->LookupExportFunction(MemberFunctionPtr::From(func));
+  template<typename... CurrArgs>
+  void DecodeAndExecuteRecursive(uint8_t *in_bytes, uint32_t *in_len,
+                                 CurrArgs... curr_args,
+                                 bool *ok) {
+    *in_len = 0;
 
-    // This incomplete solution only works for this type of member functions.
-    // So the result must be an integer.
-    auto result = new Result<unsigned int>();
+    using FunctionPointerType = void (Svc::*)(CurrArgs...);
+    auto p = func_ptr.To<FunctionPointerType>();
+    (((Svc *) instance)->*p)(curr_args...);
+  }
+};
 
-    // We also send the parameters of the functions. For this incomplete
-    // solution, it must be one integer.
-    if (!Send(instance_id, func_id, new StrIntParam(arg1, arg2), result)) {
-      // Fail to send, then delete the result and return nullptr.
-      delete result;
-      return nullptr;
-    }
-    return result;
+// progressive approach for void return type
+template<typename Svc, typename Arg, typename... Args>
+class Args_TProcedure<Svc, void, Arg, Args...> : public Args_TProcedure<Svc, void, Args...> {
+ public:
+  bool DecodeAndExecute(uint8_t *in_bytes, uint32_t *in_len,
+                        uint8_t *out_bytes, uint32_t *out_len,
+                        bool *ok) override {
+    DecodeAndExecuteRecursive(in_bytes, in_len, ok);
+    *out_len = 0;
+    return true;
   }
 
-  template<typename Svc>
-  Result<void> *Call(Svc *svc, void (Svc::*func)(std::string, int), std::string arg1, int arg2) {
-    // Lookup instance and function IDs.
-    int instance_id = svc->instance_id();
-    int func_id = svc->LookupExportFunction(MemberFunctionPtr::From(func));
+  template<typename... CurrArgs>
+  void DecodeAndExecuteRecursive(uint8_t *in_bytes, uint32_t *in_len,
+                                 CurrArgs... curr_args,
+                                 bool *ok) {
+    uint32_t used_in_len = 0;
+    uint32_t remaining_in_len = *in_len;
 
-    // This incomplete solution only works for this type of member functions.
-    // So the result must be an integer.
-    auto result = new Result<void>();
-
-    // We also send the parameters of the functions. For this incomplete
-    // solution, it must be one integer.
-    if (!Send(instance_id, func_id, new StrIntParam(arg1, arg2), result)) {
-      // Fail to send, then delete the result and return nullptr.
-      delete result;
-      return nullptr;
+    Arg arg;
+    // This function is similar to Decode. We need to return false if buffer
+    // isn't large enough, or fatal error happens during parsing.
+    if (!Protocol<Arg>::Decode(in_bytes, &remaining_in_len, ok, arg) || !*ok) {
+      return;
     }
-    return result;
+    used_in_len += remaining_in_len; // Decode() returns the number of bytes used through the remaining_in_len parameter
+    in_bytes += remaining_in_len;
+    remaining_in_len = *in_len - used_in_len;
+
+    Args_TProcedure<Svc, void, Args...>::template DecodeAndExecuteRecursive<CurrArgs..., Arg>(in_bytes,
+                                                                                              &remaining_in_len,
+                                                                                              curr_args...,
+                                                                                              arg,
+                                                                                              ok);
+    used_in_len += remaining_in_len; // Decode() returns the number of bytes used through the remaining_in_len parameter
+
+    *in_len = used_in_len;
   }
-
-  // Functions 6-7 (according to test-complex.cc)
-  // ------------------------------------------------------------------------------------------
-  template<typename Svc>
-  Result<unsigned long> *Call(Svc *svc, unsigned long (Svc::*func)(int, unsigned int), int arg1, unsigned int arg2) {
-    // Lookup instance and function IDs.
-    int instance_id = svc->instance_id();
-    int func_id = svc->LookupExportFunction(MemberFunctionPtr::From(func));
-
-    // This incomplete solution only works for this type of member functions.
-    // So the result must be an integer.
-    auto result = new Result<unsigned long>();
-
-    // We also send the parameters of the functions. For this incomplete
-    // solution, it must be one integer.
-    if (!Send(instance_id, func_id, new IntUintParam(arg1, arg2), result)) {
-      // Fail to send, then delete the result and return nullptr.
-      delete result;
-      return nullptr;
-    }
-    return result;
-  }
-
-  template<typename Svc>
-  Result<void> *Call(Svc *svc, void (Svc::*func)(std::string, std::string), std::string arg1, std::string arg2) {
-    // Lookup instance and function IDs.
-    int instance_id = svc->instance_id();
-    int func_id = svc->LookupExportFunction(MemberFunctionPtr::From(func));
-
-    // This incomplete solution only works for this type of member functions.
-    // So the result must be an integer.
-    auto result = new Result<void>();
-
-    // We also send the parameters of the functions. For this incomplete
-    // solution, it must be one integer.
-    if (!Send(instance_id, func_id, new StrStrParam(arg1, arg2), result)) {
-      // Fail to send, then delete the result and return nullptr.
-      delete result;
-      return nullptr;
-    }
-    return result;
-  }
-  // ------------------------------------------------------------------------------------------
 };
 
 // TASK2: Server-side
 template<typename Svc>
 class Service : public BaseService {
  protected:
-  // Sample function
-  void Export(int (Svc::*func)(int)) {
-    ExportRaw(MemberFunctionPtr::From(func), new Int_IntProcedure<Svc>());
+  template<typename ReturnType, typename ... Args>
+  // << That's why template belongs here
+  void Export(ReturnType (Svc::*func)(Args...)) {
+    ExportRaw(MemberFunctionPtr::From(func), new Args_TProcedure<Svc, ReturnType, Args...>());
   }
-
-  // Function 1
-  void Export(void (Svc::*func)()) {
-    ExportRaw(MemberFunctionPtr::From(func), new Void_VoidProcedure<Svc>());
-  }
-
-  // Function 2
-  void Export(bool (Svc::*func)()) {
-    ExportRaw(MemberFunctionPtr::From(func), new Void_BoolProcedure<Svc>());
-  }
-
-  // Function 3
-  void Export(std::string (Svc::*func)(unsigned int)) {
-    ExportRaw(MemberFunctionPtr::From(func), new Uint_StrProcedure<Svc>());
-  }
-
-  // Function 4 (according to lab doc)
-  // ------------------------------------------------------------------------------------------
-  void Export(std::string (Svc::*func)(std::string)) {
-    ExportRaw(MemberFunctionPtr::From(func), new Str_StrProcedure<Svc>());
-  }
-
-  // ------------------------------------------------------------------------------------------
-  // Function 4 (according to test-complex.cc)
-  // ------------------------------------------------------------------------------------------
-  // see Function 5
-  // ------------------------------------------------------------------------------------------
-
-  // Function 5
-  void Export(std::string (Svc::*func)(std::string, int)) {
-    ExportRaw(MemberFunctionPtr::From(func), new StrInt_StrProcedure<Svc>());
-  }
-
-  // Functions 6-7 (according to lab doc)
-  // ------------------------------------------------------------------------------------------
-  void Export(unsigned int (Svc::*func)(std::string, int)) {
-    ExportRaw(MemberFunctionPtr::From(func), new StrInt_UintProcedure<Svc>());
-  }
-
-  void Export(void (Svc::*func)(std::string, int)) {
-    ExportRaw(MemberFunctionPtr::From(func), new StrInt_VoidProcedure<Svc>());
-  }
-
-  // Functions 6-7 (according to test-complex.cc)
-  // ------------------------------------------------------------------------------------------
-  void Export(unsigned long (Svc::*func)(int, unsigned int)) {
-    ExportRaw(MemberFunctionPtr::From(func), new IntUint_UlongProcedure<Svc>());
-  }
-
-  void Export(void (Svc::*func)(std::string, std::string)) {
-    ExportRaw(MemberFunctionPtr::From(func), new StrStr_VoidProcedure<Svc>());
-  }
-  // ------------------------------------------------------------------------------------------
 };
+
 }
 
 #endif /* RPCXX_SAMPLE_H */
